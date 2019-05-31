@@ -77,14 +77,15 @@ if __name__ == '__main__':
                     insertSqlStatement = SqlTemplates.get('insert_creditcardsettlements_full.sql').format(
                         keys=','.join(taken_fields.keys()),
                         values=','.join([
-                            f'\'{str(taken_fields[key])}\'' if (type(taken_fields[key]) is str)
-                            else f'\'{json.dumps(taken_fields[key])}\'' if (type(taken_fields[key]) is list)
-                            else str(taken_fields[key])
-                            for key in taken_fields.keys()]))
+                            f'\'{str(value)}\'' if (type(value) is str)
+                            else f'\'{json.dumps(value)}\'' if (type(value) is list)
+                            else str(value)
+                            for value in taken_fields.values()]))
                     postgres.execute_query(insertSqlStatement)
+
                 # Update operation
                 elif (operation == 'u'):
-                    # Skip for now
+                    print(msg.value())
                     pass
             except Exception as e:
                 print(e, msg.value())
