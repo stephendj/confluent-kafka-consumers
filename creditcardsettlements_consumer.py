@@ -62,7 +62,7 @@ if __name__ == '__main__':
     postgres.execute_query(SqlTemplates.get('init_creditcardsettlements_table.sql'))
 
     consumer = AvroConsumer(config)
-    consumer.subscribe(['creditcardsettlements_test'])
+    consumer.subscribe(['creditcardsettlements-standalone'])
 
     try:
         while True:
