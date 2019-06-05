@@ -6,4 +6,4 @@ VALUES
 (
     {values}
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET {update_keys};

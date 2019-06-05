@@ -2,26 +2,34 @@ import os
 import uuid
 import json
 
-from dotenv import load_dotenv
 from datetime import datetime
-from config import creditcardsettlements_fields
-
-from util.postgres import Postgres
-from util.sql import SqlTemplates
+from dotenv import load_dotenv
 from confluent_kafka.avro import AvroConsumer
 from confluent_kafka.avro.serializer import SerializerError
 
+from config import creditcardsettlements_fields
+from util.postgres import Postgres
+from util.sql import SqlTemplates
+
 load_dotenv()
+
+def postgres_value_converter(value):
+    if isinstance(value, str):
+        return f'\'{str(value)}\''
+    if isinstance(value, list):
+        return f'\'{json.dumps(value)}\''
+    return str(value)
 
 def sanitize_oplog_payload(message: dict):
     dictionary = {}
     for key, value in message.items():
-        if (key == '_id'):
+        if key == '_id':
             dictionary['id'] = value['$oid']
         else:
-            if (type(value) is dict and '$date' in value):
-                dictionary[key] = datetime.utcfromtimestamp(value['$date'] / 1000.0).strftime("%Y-%m-%d %H:%M:%S")
-            elif (type(value) is not list):
+            if isinstance(value, dict) and '$date' in value:
+                dictionary[key] = datetime.utcfromtimestamp(value['$date'] / 1000.0) \
+                                          .strftime("%Y-%m-%d %H:%M:%S")
+            elif not isinstance(value, list):
                 dictionary[key] = value
             else:
                 dictionary[key] = []
@@ -45,8 +53,10 @@ if __name__ == '__main__':
         'schema.registry.url': os.getenv('SCHEMA_REGISTRY_URL')
     }
 
-    postgres = Postgres(database=os.getenv('POSTGRES_DATABASE'), hostname=os.getenv('POSTGRES_HOST'),
-        username=os.getenv('POSTGRES_USERNAME'), password=os.getenv('POSTGRES_PASSWORD'))
+    postgres = Postgres(
+        database=os.getenv('POSTGRES_DATABASE'), hostname=os.getenv('POSTGRES_HOST'),
+        username=os.getenv('POSTGRES_USERNAME'), password=os.getenv('POSTGRES_PASSWORD')
+    )
 
     # Execute initial table creation query
     postgres.execute_query(SqlTemplates.get('init_creditcardsettlements_table.sql'))
@@ -64,31 +74,38 @@ if __name__ == '__main__':
                 continue
 
             try:
-                message_dict = msg.value()
-                operation = message_dict['op']
-                # Insert operation
-                if (operation == 'c' or operation == 'r'):
-                    cleaned_payload = sanitize_oplog_payload(json.loads(message_dict['after']))
-                    taken_fields = {}
-                    for key in creditcardsettlements_fields:
-                        if (key in cleaned_payload):
-                            taken_fields[key] = cleaned_payload[key]
-                    
-                    insertSqlStatement = SqlTemplates.get('insert_creditcardsettlements_full.sql').format(
-                        keys=','.join(taken_fields.keys()),
-                        values=','.join([
-                            f'\'{str(value)}\'' if (type(value) is str)
-                            else f'\'{json.dumps(value)}\'' if (type(value) is list)
-                            else str(value)
-                            for value in taken_fields.values()]))
-                    postgres.execute_query(insertSqlStatement)
+                message_key = msg.key()
+                message_value = msg.value()
+                operation = message_value['op']
+
+                #Insert operation
+                if operation in ('c', 'r'):
+                    cleaned_payload = sanitize_oplog_payload(json.loads(message_value['after']))
 
                 # Update operation
-                elif (operation == 'u'):
-                    print(msg.value())
-                    pass
+                elif operation == 'u':
+                    cleaned_payload = sanitize_oplog_payload(json.loads(message_value['patch'])['$set'])
+                    cleaned_payload['id'] = json.loads(message_key['id'])['$oid']
+
+                taken_fields = {}
+                for key in creditcardsettlements_fields:
+                    if key in cleaned_payload:
+                        taken_fields[key] = cleaned_payload[key]
+
+                key_list = list(taken_fields.keys())
+                value_list = [postgres_value_converter(value) for value in taken_fields.values()]
+                update_key_list = [
+                    f'{key_list[i]}=EXCLUDED.{key_list[i]}'
+                    for i in range(len(key_list))
+                    if (key_list[i] != 'id')
+                ]
+                upsert_sql_statement = SqlTemplates.get('upsert_creditcardsettlements.sql').format(
+                    keys=','.join(key_list),
+                    values=','.join(value_list),
+                    update_keys=','.join(update_key_list))
+                postgres.execute_query(upsert_sql_statement)
             except Exception as e:
-                print(e, msg.value())
+                print(e, msg.key(), msg.value())
                 break
     except SerializerError as e:
         print("Message deserialization failed for {}: {}".format(msg, e))
