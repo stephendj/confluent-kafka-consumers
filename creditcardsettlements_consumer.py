@@ -48,7 +48,7 @@ if __name__ == '__main__':
         'security.protocol': 'SASL_SSL',
         'sasl.username': os.getenv('SASL_USERNAME'),
         'sasl.password': os.getenv('SASL_PASSWORD'),
-        'group.id': 'connect-sink-jdbc-xendit-deposit-service-creditcardsettlements',
+        'group.id': 'connect-sink-jdbc-xendit-deposit-service-creditcardsettlements-v2',
         'auto.offset.reset': 'earliest',
         'schema.registry.url': os.getenv('SCHEMA_REGISTRY_URL')
     }
